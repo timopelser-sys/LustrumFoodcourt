@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import {
   Utensils, Shell, Truck, Flame, Calendar, Mic,
   Plus, ChevronRight, ArrowLeft, Presentation, Sparkles,
-  ExternalLink, Search
+  ExternalLink, Search, Lock, LogOut, KeyRound, Mail,
+  ShieldCheck, UserCheck, Eye
 } from 'lucide-react';
 
 // Supabase configuratie via Vercel Environment Variables
@@ -15,6 +16,75 @@ const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
+
+// Vaste LuCo & CvT Accounts
+const ACCOUNTS = [
+  {
+    username: 'praeses.luco',
+    email: 'praeses.luco@asc-avsv.nl',
+    password: 'Praeses-XXXV-2027!',
+    role: 'editor',
+    label: 'Praeses LuCo'
+  },
+  {
+    username: 'abactis.luco',
+    email: 'abactis.luco@asc-avsv.nl',
+    password: 'AbActis-XXXV-2027!',
+    role: 'admin',
+    label: 'Ab Actis LuCo'
+  },
+  {
+    username: 'q1.luco',
+    email: 'q1.luco@asc-avsv.nl',
+    password: 'Quaestor1-XXXV-2027!',
+    role: 'editor',
+    label: 'Quaestor I LuCo'
+  },
+  {
+    username: 'q2.luco',
+    email: 'q2.luco@asc-avsv.nl',
+    password: 'Quaestor2-XXXV-2027!',
+    role: 'editor',
+    label: 'Quaestor II LuCo'
+  },
+  {
+    username: 'intern1.luco',
+    email: 'intern1.luco@asc-avsv.nl',
+    password: 'Intern1-XXXV-2027!',
+    role: 'editor',
+    label: 'Intern I LuCo'
+  },
+  {
+    username: 'intern2.luco',
+    email: 'intern2.luco@asc-avsv.nl',
+    password: 'Intern2-XXXV-2027!',
+    role: 'editor',
+    label: 'Intern II LuCo'
+  },
+  {
+    username: 'extern.luco',
+    email: 'extern.luco@asc-avsv.nl',
+    password: 'Extern-XXXV-2027!',
+    role: 'editor',
+    label: 'Extern LuCo'
+  },
+  {
+    username: 'terrein.luco',
+    email: 'terrein.luco@asc-avsv.nl',
+    password: 'Terrein-XXXV-2027!',
+    role: 'editor',
+    label: 'Terrein LuCo'
+  },
+  {
+    username: 'cvt.kijk',
+    email: 'cvt@asc-avsv.nl',
+    password: 'CvT-Inzage-2027!',
+    role: 'viewer',
+    label: 'College van Toezicht (Kijk-alleen)'
+  }
+];
+
+const STORAGE_AUTH_KEY = 'lustrum_foodcourt_auth_v1';
 
 const CATEGORIES = [
   {
@@ -55,6 +125,34 @@ const STATUS_OPTIONS = [
 ];
 
 function App() {
+  // Authenticatie state (blijft ingelogd via localStorage)
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_AUTH_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Login schermen: 'login' | 'forgot' | 'cvt_request'
+  const [authScreen, setAuthScreen] = useState('login');
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  // Wachtwoord vergeten state
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotMessage, setForgotMessage] = useState(null);
+
+  // CvT Toegang aanvragen state
+  const [cvtName, setCvtName] = useState('');
+  const [cvtEmail, setCvtEmail] = useState('');
+  const [cvtSubmitted, setCvtSubmitted] = useState(false);
+  const [cvtRequests, setCvtRequests] = useState([]);
+  const [showCvtAdminModal, setShowCvtAdminModal] = useState(false);
+
+  // Data states
   const [vendors, setVendors] = useState([]);
   const [meetingLogs, setMeetingLogs] = useState([]);
   const [vendorFiles, setVendorFiles] = useState([]);
@@ -96,9 +194,16 @@ function App() {
   const [aiProcessing, setAiProcessing] = useState(false);
   const [weeklyReplyText, setWeeklyReplyText] = useState('');
 
+  const isViewerOnly = currentUser?.role === 'viewer';
+  const isReadOnly = isViewerOnly || presentationMode;
+
   useEffect(() => {
+    document.title = 'Lustrum-Foodcourt overzicht';
+    if (currentUser?.role === 'viewer') {
+      setPresentationMode(true);
+    }
     fetchAllData();
-  }, []);
+  }, [currentUser]);
 
   async function fetchAllData() {
     if (!supabase) {
@@ -106,22 +211,161 @@ function App() {
       return;
     }
     setLoading(true);
-    const [vRes, mRes, fRes] = await Promise.all([
+    const [vRes, mRes, fRes, cRes] = await Promise.all([
       supabase.from('vendors').select('*').order('updated_at', { ascending: false }),
       supabase.from('meeting_logs').select('*').order('created_at', { ascending: false }),
-      supabase.from('vendor_files').select('*').order('created_at', { ascending: false })
+      supabase.from('vendor_files').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('weekly_checkins')
+        .select('*')
+        .eq('generated_prompt', 'CVT_ACCESS_REQUEST')
+        .order('checkin_date', { ascending: false })
     ]);
 
     if (vRes.data) setVendors(vRes.data);
     if (mRes.data) setMeetingLogs(mRes.data);
     if (fRes.data) setVendorFiles(fRes.data);
+    if (cRes.data) setCvtRequests(cRes.data);
     setLoading(false);
+  }
+
+  // Inloggen afhandelen
+  function handleLogin(e) {
+    e.preventDefault();
+    setLoginError('');
+    const cleanUser = loginUsername.trim().toLowerCase();
+    const cleanPass = loginPassword.trim();
+
+    const matched = ACCOUNTS.find(
+      (a) =>
+        (a.username.toLowerCase() === cleanUser || a.email.toLowerCase() === cleanUser) &&
+        a.password === cleanPass
+    );
+
+    if (!matched) {
+      setLoginError('Ongeldige gebruikersnaam of wachtwoord. Controleer je gegevens.');
+      return;
+    }
+
+    const sessionUser = {
+      username: matched.username,
+      email: matched.email,
+      role: matched.role,
+      label: matched.label
+    };
+
+    localStorage.setItem(STORAGE_AUTH_KEY, JSON.stringify(sessionUser));
+    setCurrentUser(sessionUser);
+    if (matched.role === 'viewer') {
+      setPresentationMode(true);
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(STORAGE_AUTH_KEY);
+    setCurrentUser(null);
+    setLoginUsername('');
+    setLoginPassword('');
+    setPresentationMode(false);
+  }
+
+  // Wachtwoord vergeten afhandelen
+  function handleForgotPassword(e) {
+    e.preventDefault();
+    const clean = forgotUsername.trim().toLowerCase();
+    const acc = ACCOUNTS.find(
+      (a) => a.username.toLowerCase() === clean || a.email.toLowerCase() === clean
+    );
+
+    if (!acc) {
+      setForgotMessage({
+        type: 'error',
+        text: 'Geen LuCo-account gevonden met deze gebruikersnaam of dit e-mailadres.'
+      });
+      return;
+    }
+
+    const subject = encodeURIComponent(`Wachtwoord herstel Lustrum-Foodcourt: ${acc.username}`);
+    const body = encodeURIComponent(
+      `Beste Ab Actis,\n\nIk ben het wachtwoord vergeten voor het account "${acc.username}" (gekoppeld e-mailadres: ${acc.email}).\nKun je mijn wachtwoord opnieuw toesturen naar ${acc.email}?\n\nDank!`
+    );
+
+    window.location.href = `mailto:abactis.luco@asc-avsv.nl?cc=${acc.email}&subject=${subject}&body=${body}`;
+
+    setForgotMessage({
+      type: 'success',
+      text: `Dit account is gekoppeld aan ${acc.email}. Je mailprogramma is geopend om het wachtwoordherstel via abactis.luco@asc-avsv.nl naar ${acc.email} te laten sturen.`
+    });
+  }
+
+  // CvT Kijk-toegang aanvragen
+  async function handleCvtAccessRequest(e) {
+    e.preventDefault();
+    if (!cvtName.trim() || !cvtEmail.trim()) return;
+
+    if (supabase) {
+      await supabase.from('weekly_checkins').insert([
+        {
+          generated_prompt: 'CVT_ACCESS_REQUEST',
+          user_reply: `${cvtName.trim()} (${cvtEmail.trim()})`,
+          processed_updates: [
+            {
+              name: cvtName.trim(),
+              email: cvtEmail.trim(),
+              status: 'Wacht op goedkeuring',
+              requested_at: new Date().toISOString()
+            }
+          ]
+        }
+      ]);
+    }
+
+    const subject = encodeURIComponent(
+      `Toestemming gevraagd: CvT Kijk-toegang Lustrum-Foodcourt (${cvtName})`
+    );
+    const body = encodeURIComponent(
+      `Beste Ab Actis,\n\nHierbij vraag ik namens het College van Toezicht kijk-alleen toegang aan voor het Lustrum-Foodcourt overzicht.\n\nNaam: ${cvtName}\nE-mailadres: ${cvtEmail}\n\nStuur bij goedkeuring de kijk-alleen inloggegevens (Gebruikersnaam: cvt.kijk) terug naar ${cvtEmail}.`
+    );
+
+    window.location.href = `mailto:abactis.luco@asc-avsv.nl?subject=${subject}&body=${body}`;
+    setCvtSubmitted(true);
+    fetchAllData();
+  }
+
+  // Ab Actis keurt CvT-aanvraag goed
+  async function handleApproveCvtRequest(reqItem) {
+    const info = reqItem.processed_updates?.[0] || {};
+    const targetEmail = info.email || '';
+    const targetName = info.name || reqItem.user_reply;
+
+    if (supabase) {
+      await supabase
+        .from('weekly_checkins')
+        .update({
+          processed_updates: [
+            {
+              ...info,
+              status: 'Goedgekeurd door Ab Actis'
+            }
+          ]
+        })
+        .eq('id', reqItem.id);
+    }
+
+    const subject = encodeURIComponent('Toegang verleend: Lustrum-Foodcourt overzicht (CvT)');
+    const body = encodeURIComponent(
+      `Beste ${targetName},\n\nJe aanvraag voor kijk-alleen toegang tot het Lustrum-Foodcourt overzicht is goedgekeurd.\n\nJe kunt inloggen met de onderstaande gegevens:\nWebsite: ${window.location.origin}\nGebruikersnaam: cvt.kijk\nWachtwoord: CvT-Inzage-2027!\n\nMet vriendelijke groet,\nAb Actis XXXVste Lustrumcommissie\nabactis.luco@asc-avsv.nl`
+    );
+
+    window.location.href = `mailto:${targetEmail}?subject=${subject}&body=${body}`;
+    fetchAllData();
   }
 
   const activeVendor = vendors.find((v) => v.id === selectedVendorId) || null;
   const categoryVendors = vendors.filter((v) => v.category === selectedCategory);
 
   async function handleUpdateVendor(updatedVendor) {
+    if (isReadOnly) return;
     setVendors((prev) => prev.map((v) => (v.id === updatedVendor.id ? updatedVendor : v)));
     if (!supabase) return;
     await supabase
@@ -135,7 +379,7 @@ function App() {
 
   async function handleCreateVendor(e) {
     e.preventDefault();
-    if (!newVendor.name.trim() || !supabase) return;
+    if (isReadOnly || !newVendor.name.trim() || !supabase) return;
     const { data, error } = await supabase
       .from('vendors')
       .insert([
@@ -190,7 +434,7 @@ function App() {
 
   async function handleAddMeetingLog(e) {
     e.preventDefault();
-    if (!activeVendor || !supabase) return;
+    if (isReadOnly || !activeVendor || !supabase) return;
     setAiProcessing(true);
 
     let uploadedAudioUrl = '';
@@ -214,7 +458,7 @@ function App() {
     };
 
     const aiPrompt = `
-      Je bent de zelflerende assistent voor de Lustrum Food Court.
+      Je bent de zelflerende assistent voor het Lustrum-Foodcourt overzicht.
       Analyseer deze nieuwe gespreksnotities voor bedrijf "${activeVendor.name}" (${activeVendor.category}):
       "${newMeeting.raw_notes}"
       Bestaande informatie - Aanbod: "${activeVendor.offering}", Ervaring: "${activeVendor.experience}".
@@ -287,7 +531,7 @@ function App() {
 
   async function handleFileUpload(e) {
     e.preventDefault();
-    if (!docFile || !activeVendor || !supabase) return;
+    if (isReadOnly || !docFile || !activeVendor || !supabase) return;
     setAiProcessing(true);
 
     const filePath = `docs/${activeVendor.id}-${Date.now()}-${docFile.name}`;
@@ -324,11 +568,11 @@ function App() {
   }
 
   async function handleProcessWeeklyReply() {
-    if (!weeklyReplyText.trim() || !supabase) return;
+    if (isReadOnly || !weeklyReplyText.trim() || !supabase) return;
     setAiProcessing(true);
 
     const aiPrompt = `
-      Hier is een wekelijkse update van de gebruiker over meerdere bedrijven voor de Lustrum Food Court:
+      Hier is een wekelijkse update van de gebruiker over meerdere bedrijven voor het Lustrum-Foodcourt overzicht:
       "${weeklyReplyText}"
       Huidige bedrijven in de database: ${JSON.stringify(
         vendors.map((v) => ({ id: v.id, name: v.name }))
@@ -384,6 +628,210 @@ function App() {
     fetchAllData();
   }
 
+  // SCHERM 0: INLOGSCHERM & TOEGANGSBEHEER
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#090A0F] text-zinc-100 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-zinc-900/90 border border-amber-500/30 rounded-2xl p-8 space-y-6 shadow-2xl">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mx-auto text-amber-400">
+              <Lock className="w-6 h-6" />
+            </div>
+            <span className="text-xs uppercase tracking-[0.25em] text-amber-400/90 font-semibold block pt-1">
+              XXXVste Lustrum A.S.C./A.V.S.V.
+            </span>
+            <h1 className="text-3xl font-serif-luxury text-white">
+              Lustrum-Foodcourt overzicht
+            </h1>
+            <p className="text-xs text-zinc-400">
+              Beveiligde omgeving voor de Lustrumcommissie & het College van Toezicht
+            </p>
+          </div>
+
+          {/* REGULIER INLOGGEN */}
+          {authScreen === 'login' && (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase tracking-wider text-zinc-400 font-semibold">
+                  Gebruikersnaam
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="bijv. abactis.luco"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase tracking-wider text-zinc-400 font-semibold">
+                  Wachtwoord / Inlogcode
+                </label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••••••"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {loginError && (
+                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-300">
+                  {loginError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition shadow-lg shadow-amber-500/10"
+              >
+                Inloggen (Blijf ingelogd)
+              </button>
+
+              <div className="pt-3 border-t border-zinc-800 flex flex-col gap-2 text-center text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotMessage(null);
+                    setAuthScreen('forgot');
+                  }}
+                  className="text-zinc-400 hover:text-amber-400 transition"
+                >
+                  Wachtwoord vergeten?
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCvtSubmitted(false);
+                    setAuthScreen('cvt_request');
+                  }}
+                  className="mt-1 py-2.5 px-4 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-amber-300 font-medium transition flex items-center justify-center gap-2"
+                >
+                  <Eye className="w-4 h-4" /> CvT Kijk-toegang aanvragen
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* WACHTWOORD VERGETEN */}
+          {authScreen === 'forgot' && (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-400" /> Wachtwoord herstellen
+                </h2>
+                <p className="text-xs text-zinc-400">
+                  Vul je LuCo-gebruikersnaam in. Er wordt direct een herstelverzoek gekoppeld aan
+                  jouw bijbehorende @asc-avsv.nl e-mailadres.
+                </p>
+              </div>
+
+              <input
+                type="text"
+                required
+                placeholder="bijv. q1.luco of q1.luco@asc-avsv.nl"
+                value={forgotUsername}
+                onChange={(e) => setForgotUsername(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500"
+              />
+
+              {forgotMessage && (
+                <div
+                  className={`p-3 rounded-xl text-xs border ${
+                    forgotMessage.type === 'error'
+                      ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                      : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  }`}
+                >
+                  {forgotMessage.text}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition"
+              >
+                Wachtwoord opvragen via gekoppelde mail
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAuthScreen('login')}
+                className="w-full py-2 text-xs text-zinc-400 hover:text-white"
+              >
+                ← Terug naar inloggen
+              </button>
+            </form>
+          )}
+
+          {/* CVT TOESTEMMING AANVRAGEN */}
+          {authScreen === 'cvt_request' && (
+            <form onSubmit={handleCvtAccessRequest} className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-400" /> CvT Kijk-toegang aanvragen
+                </h2>
+                <p className="text-xs text-zinc-400">
+                  Vraag kijk-alleen toestemming aan. Er wordt direct een e-mail gestuurd naar{' '}
+                  <span className="text-amber-300">abactis.luco@asc-avsv.nl</span> ter goedkeuring.
+                </p>
+              </div>
+
+              {!cvtSubmitted ? (
+                <>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Volledige naam (CvT)"
+                    value={cvtName}
+                    onChange={(e) => setCvtName(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500"
+                  />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Jouw e-mailadres voor ontvangst inlogcode"
+                    value={cvtEmail}
+                    onChange={(e) => setCvtEmail(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition"
+                  >
+                    Verstuur Aanvraag naar Ab Actis
+                  </button>
+                </>
+              ) : (
+                <div className="p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-xs text-emerald-200 space-y-2">
+                  <div className="font-semibold text-emerald-300">
+                    Aanvraag geregistreerd & klaargezet voor Ab Actis!
+                  </div>
+                  <p>
+                    Zodra abactis.luco@asc-avsv.nl toestemming geeft, ontvang je de kijk-alleen
+                    inloggegevens per mail.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setAuthScreen('login')}
+                className="w-full py-2 text-xs text-zinc-400 hover:text-white"
+              >
+                ← Terug naar inloggen
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!supabase) {
     return (
       <div className="min-h-screen bg-[#090A0F] text-zinc-100 flex items-center justify-center p-6">
@@ -405,6 +853,10 @@ function App() {
     );
   }
 
+  const pendingCvtCount = cvtRequests.filter(
+    (r) => r.processed_updates?.[0]?.status === 'Wacht op goedkeuring'
+  ).length;
+
   return (
     <div className="min-h-screen bg-[#090A0F] text-zinc-100">
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#090A0F]/85 border-b border-zinc-800/80 px-6 py-4">
@@ -417,16 +869,39 @@ function App() {
             }}
             className="cursor-pointer"
           >
-            <span className="text-xs uppercase tracking-[0.25em] text-amber-400/90 font-medium">
-              Lustrum Food Court Regie
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-[0.25em] text-amber-400/90 font-medium">
+                XXXVste Lustrum • {currentUser.label}
+              </span>
+              {isViewerOnly && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  Kijk-alleen Modus
+                </span>
+              )}
+            </div>
             <h1 className="text-2xl font-serif-luxury text-white tracking-tight">
-              Overzicht & Interactieve Brochures
+              Lustrum-Foodcourt overzicht
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
-            {!presentationMode && (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Speciaal voor Ab Actis: CvT Toegangsaanvragen goedkeuren */}
+            {currentUser.username === 'abactis.luco' && (
+              <button
+                onClick={() => setShowCvtAdminModal(true)}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-amber-500/40 text-xs font-medium text-amber-300 transition"
+              >
+                <UserCheck className="w-4 h-4" />
+                CvT Aanvragen & Accounts
+                {pendingCvtCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-black font-bold text-[10px]">
+                    {pendingCvtCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {!isReadOnly && (
               <button
                 onClick={() => setShowCheckinModal(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-sm font-medium text-zinc-200 transition"
@@ -436,16 +911,27 @@ function App() {
               </button>
             )}
 
+            {!isViewerOnly && (
+              <button
+                onClick={() => setPresentationMode(!presentationMode)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition ${
+                  presentationMode
+                    ? 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20'
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-amber-500/30'
+                }`}
+              >
+                <Presentation className="w-4 h-4" />
+                {presentationMode ? 'Kijk-modus Actief (CvT)' : 'Presentatiemodus (CvT)'}
+              </button>
+            )}
+
             <button
-              onClick={() => setPresentationMode(!presentationMode)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition ${
-                presentationMode
-                  ? 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20'
-                  : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-amber-500/30'
-              }`}
+              onClick={handleLogout}
+              title={`Ingelogd als ${currentUser.username} (${currentUser.email})`}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-rose-950/60 border border-zinc-800 hover:border-rose-500/40 text-xs text-zinc-400 hover:text-rose-300 transition"
             >
-              <Presentation className="w-4 h-4" />
-              {presentationMode ? 'Presentatiemodus Actief (CvT)' : 'Presentatiemodus (CvT)'}
+              <LogOut className="w-3.5 h-3.5" />
+              Uitloggen
             </button>
           </div>
         </div>
@@ -465,7 +951,7 @@ function App() {
                     bedrijfsbrochures.
                   </p>
                 </div>
-                {!presentationMode && (
+                {!isReadOnly && (
                   <button
                     onClick={() => setShowNewVendorModal(true)}
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition"
@@ -624,7 +1110,7 @@ function App() {
                 </p>
               </div>
 
-              {!presentationMode && (
+              {!isReadOnly && (
                 <button
                   onClick={() => {
                     setNewVendor({ ...newVendor, category: selectedCategory });
@@ -732,7 +1218,7 @@ function App() {
                   <h2 className="text-4xl font-serif-luxury text-white">{activeVendor.name}</h2>
                   <select
                     value={activeVendor.status}
-                    disabled={presentationMode}
+                    disabled={isReadOnly}
                     onChange={(e) =>
                       handleUpdateVendor({ ...activeVendor, status: e.target.value })
                     }
@@ -762,7 +1248,7 @@ function App() {
                       </label>
                       <textarea
                         rows={2}
-                        readOnly={presentationMode}
+                        readOnly={isReadOnly}
                         value={activeVendor.general_info || ''}
                         onChange={(e) =>
                           handleUpdateVendor({ ...activeVendor, general_info: e.target.value })
@@ -777,7 +1263,7 @@ function App() {
                       </label>
                       <textarea
                         rows={4}
-                        readOnly={presentationMode}
+                        readOnly={isReadOnly}
                         value={activeVendor.experience || ''}
                         onChange={(e) =>
                           handleUpdateVendor({ ...activeVendor, experience: e.target.value })
@@ -792,7 +1278,7 @@ function App() {
                       </label>
                       <textarea
                         rows={4}
-                        readOnly={presentationMode}
+                        readOnly={isReadOnly}
                         value={activeVendor.offering || ''}
                         onChange={(e) =>
                           handleUpdateVendor({ ...activeVendor, offering: e.target.value })
@@ -808,7 +1294,7 @@ function App() {
                         </label>
                         <textarea
                           rows={3}
-                          readOnly={presentationMode}
+                          readOnly={isReadOnly}
                           value={activeVendor.capacity_logistics || ''}
                           onChange={(e) =>
                             handleUpdateVendor({
@@ -826,7 +1312,7 @@ function App() {
                         </label>
                         <textarea
                           rows={3}
-                          readOnly={presentationMode}
+                          readOnly={isReadOnly}
                           value={activeVendor.financial_notes || ''}
                           onChange={(e) =>
                             handleUpdateVendor({
@@ -847,7 +1333,7 @@ function App() {
                     Vastgelegde Gesprekken & Audio-notulen
                   </h3>
 
-                  {!presentationMode && (
+                  {!isReadOnly && (
                     <form
                       onSubmit={handleAddMeetingLog}
                       className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 space-y-4"
@@ -976,7 +1462,7 @@ function App() {
                     <input
                       type="text"
                       placeholder="Contactpersoon"
-                      readOnly={presentationMode}
+                      readOnly={isReadOnly}
                       value={activeVendor.contact_person || ''}
                       onChange={(e) =>
                         handleUpdateVendor({ ...activeVendor, contact_person: e.target.value })
@@ -986,7 +1472,7 @@ function App() {
                     <input
                       type="text"
                       placeholder="Telefoonnummer"
-                      readOnly={presentationMode}
+                      readOnly={isReadOnly}
                       value={activeVendor.phone || ''}
                       onChange={(e) =>
                         handleUpdateVendor({ ...activeVendor, phone: e.target.value })
@@ -996,7 +1482,7 @@ function App() {
                     <input
                       type="email"
                       placeholder="E-mailadres"
-                      readOnly={presentationMode}
+                      readOnly={isReadOnly}
                       value={activeVendor.email || ''}
                       onChange={(e) =>
                         handleUpdateVendor({ ...activeVendor, email: e.target.value })
@@ -1022,7 +1508,7 @@ function App() {
                   <h3 className="text-base font-semibold text-white">
                     Bestanden, Menu's & Offertes
                   </h3>
-                  {!presentationMode && (
+                  {!isReadOnly && (
                     <form onSubmit={handleFileUpload} className="space-y-3 text-xs">
                       <input
                         type="file"
@@ -1070,7 +1556,79 @@ function App() {
         )}
       </main>
 
-      {showCheckinModal && (
+      {/* MODAL VOOR AB ACTIS: CVT AANVRAGEN & ACCOUNTS BEHEREN */}
+      {showCvtAdminModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-serif-luxury text-amber-400">
+                CvT Toegangsaanvragen & Accountoverzicht (Ab Actis)
+              </h3>
+              <button
+                onClick={() => setShowCvtAdminModal(false)}
+                className="text-zinc-400 hover:text-white text-sm"
+              >
+                Sluiten
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs uppercase tracking-wider text-zinc-400 font-semibold">
+                Binnengekomen CvT Kijk-toegang Aanvragen
+              </h4>
+              {cvtRequests.length === 0 ? (
+                <p className="text-xs text-zinc-400 bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                  Er zijn momenteel nog geen CvT-aanvragen ingediend via het inlogscherm.
+                </p>
+              ) : (
+                cvtRequests.map((req) => {
+                  const info = req.processed_updates?.[0] || {};
+                  return (
+                    <div
+                      key={req.id}
+                      className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-4 rounded-xl border border-zinc-800 text-xs"
+                    >
+                      <div>
+                        <div className="font-semibold text-white">{req.user_reply}</div>
+                        <div className="text-zinc-400 mt-0.5">
+                          Status: <span className="text-amber-300">{info.status || 'Nieuw'}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleApproveCvtRequest(req)}
+                        className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold transition flex items-center gap-1.5"
+                      >
+                        <Mail className="w-3.5 h-3.5" /> Geef Toestemming & Stuur Inlogcode
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="space-y-2 pt-3 border-t border-zinc-800">
+              <h4 className="text-xs uppercase tracking-wider text-zinc-400 font-semibold">
+                Geregistreerde LuCo & CvT Accounts
+              </h4>
+              <div className="divide-y divide-zinc-800/60 bg-zinc-950 rounded-xl border border-zinc-800 text-xs">
+                {ACCOUNTS.map((a) => (
+                  <div key={a.username} className="p-3 flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-white">{a.username}</span>
+                      <span className="text-zinc-400 ml-2">({a.email})</span>
+                    </div>
+                    <code className="text-amber-300 bg-zinc-900 px-2 py-1 rounded">
+                      {a.password}
+                    </code>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCheckinModal && !isReadOnly && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-6 space-y-5">
             <div className="flex items-center justify-between">
@@ -1111,7 +1669,7 @@ function App() {
         </div>
       )}
 
-      {showNewVendorModal && (
+      {showNewVendorModal && !isReadOnly && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form
             onSubmit={handleCreateVendor}
